@@ -28,21 +28,17 @@ console.log('Telegram bot started ...');
 
 //----------------------------------Reminder/Auto kick users---------------------------------
 
-/*setInterval(() => {
+setInterval(() => {
     const date = new Date().getUTCHours()
-    if (date === 6){
-
+    if (date === 8){
+        notActivUser()
     }
-    notActivUser()
-}, 60*1*1000)*/
+
+}, 60*60*1000)
 
 //----------------------------------Pars mod message--------------------------------
 bot.on('message', msg => {
     // console.log(msg)
-    // console.log(msg.reply_to_message)
-    /*bot.onReplyToMessage(msg.chat.id, msg.message_id, function (data) {
-        console.log(`Test`, data)
-    })*/
 
     if (msg.chat.type === 'group'|| msg.chat.type === 'supergroup') {
         const userId = msg.from.id;
@@ -51,31 +47,50 @@ bot.on('message', msg => {
         const chatId = msg.chat.id;
         const chatTitle = msg.chat.title;
         const chatNikName = msg.chat.username;
+        const msgId = msg.message_id
         //----------------------------check chat&users----------------------
         checkChat(chatId, chatTitle, chatNikName, userId);
-        checkUser(userId, name, nikName);
+        checkUser(userId, name, nikName, msg.date);
 
 //--------------------------message text----------------------------------
         if (msg.text) {
+//--------------------------Admin bot message----------------------------------
+            if (msg.chat.id === adminChatBot) {
+                if (msg.reply_to_message) {
+                    const text = msg.reply_to_message.text
+                    if (text.startsWith('msg_')) {
+                        sendHTML(text.slice(4, text.indexOf('&')), msg.text, text.slice(text.search('&')+1, text.indexOf('\n')))
+                    }
+                } else if (msg.text.startsWith('/chat_')) {
+                    adminGetChatUsers(msg.text.slice(6, 30), chatId, msgId)
+                } else if (msg.text.startsWith('/del_')) {
+                    adminDeleteUserDB(msg.text.slice(5, 29), chatId, msgId)
+                } else if (msg.text.startsWith('/delchat_')) {
+                    adminDeleteChatDB(msg.text.slice(9, 33), chatId, msgId)
+                }
+            }
+
+//--------------------------Chat-------------------------------------------------
             Chat.findOne({chatId})
                 .then(chat=>{
                     if (chat.notActivUser){
-
-                    } else if (chat.reputation&&msg.reply_to_message){
+                        checkDate(chatId, userId, msg.date)
+                    }
 //--------------------------Reputation User Group-------------------------
+                    if (chat.reputation&&msg.reply_to_message){
                         const userIdReply = msg.reply_to_message.from.id
                         const userNameReply = msg.reply_to_message.from.first_name
-                        const msgId = msg.message_id
                         if (msg.text.startsWith('+') && userIdReply && userIdReply !== userId || msg.text.startsWith('👍') && userIdReply && userIdReply !== userId || msg.text.endsWith('👍') && userIdReply && userIdReply !== userId) {
                             repUser(chatId, userId, userIdReply, userNameReply, true, msgId)
                         } else if (msg.text.startsWith('-') && userIdReply && userIdReply !== userId || msg.text.startsWith('👎') && userIdReply && userIdReply !== userId || msg.text.endsWith('👎') && userIdReply && userIdReply !== userId){
                             repUser(chatId, userId, userIdReply, userNameReply, false, msgId)
                         }
-                    } else if (chat.level){
+                    }
 //--------------------------Level User Chat---------------------------------------
+                    if (chat.level){
                         const data = msg.text.split(/(?:,| |\n)+/);
                         const level = Math.floor(data.length/5);
-                        levelUser(chatId, userId, level, msg.date)
+                        levelUser(chatId, userId, level)
                     } else if (!chat.notActivUser&&!chat.reputation&&!chat.level&&!chat.cleanData){
 //---------------------------Clean data chat---------------------------------------
                         cleanData(chatId)
@@ -139,8 +154,7 @@ bot.on('left_chat_member', msg => {
 
 bot.onText(/\/test/, msg => {
     if (msg.from.id === adminBota && msg.text.startsWith('/test')) {
-        /*Chat.findOne({chatId: msg.chat.id})
-            .then(chat =>cleanData(chat.chatId))*/
+
     }
 });
 
@@ -214,28 +228,18 @@ bot.onText(/\/chats/, msg => {
             })
     }
 });
-bot.onText(/\/chat_/, msg => {
-    if (msg.chat.id === adminChatBot && msg.text.startsWith('/chat_')) {
-        adminGetChatUsers(msg.text.slice(6, 30), msg.chat.id, msg.message_id)
-    }
-});
-bot.onText(/\/delchat_/, msg => {
-    if (msg.chat.id === adminChatBot && msg.text.startsWith('/delchat_')) {
-        adminDeleteChatDB(msg.text.slice(9, 33), msg.chat.id, msg.message_id)
-    }
-});
 bot.onText(/\/user/, msg => {
     if (adminsBot.includes(msg.from.id) && msg.text.startsWith('/user')) {
         if (msg.reply_to_message) {
             adminUserCheck(msg.reply_to_message.from.id)
-        } else if (msg.text.startsWith('/user_')) {
+        } else {
             adminUserCheck(msg.text.slice(6, msg.text.indexOf('@')))
         }
     }
 });
-bot.onText(/\/del_/, msg => {
-    if (msg.chat.id === adminChatBot && msg.text.startsWith('/del_')) {
-        adminDeleteUserDB(msg.text.slice(5, 29), msg.chat.id, msg.message_id)
+bot.onText(/\/message(.+)/, msg => {
+    if (msg.chat.id === adminChatBot && msg.text.startsWith('/message')) {
+        adminMessageChats(msg.text.slice(9))
     }
 });
 
@@ -389,15 +393,17 @@ bot.onText(/\/reminder(.+)/, msg => {
         checkAdmin(chatId, msg.from.id)
             .then(admin=>{
                 if (admin){
-                    if (msg.text.toLowerCase().includes('on')){
+                    const text = msg.text
+                    const check = /\d+/
+                    if (text.match(check)||text.toLowerCase().includes('on')){
                         Chat.findOne({chatId})
                             .then(chat => {
-                                toggleSwitch(chat._id, 'reminder', true, msgId)
+                                toggleSwitch(chat._id, 'reminder', true, text.match(check)[0], msgId)
                             })
-                    } else if (msg.text.toLowerCase().includes('off')){
+                    } else if (text.toLowerCase().includes('off')){
                         Chat.findOne({chatId})
                             .then(chat => {
-                                toggleSwitch(chat._id, 'reminder', false, msgId)
+                                toggleSwitch(chat._id, 'reminder', false, null, msgId)
                             })
                     }
                 }
@@ -461,7 +467,7 @@ bot.onText(/\/settings/, msg => {
                             const reputation = chat.reputation ? 'включен' : 'отлючен'
                             const level = chat.level ? 'включен' : 'отлючен'
                             sendHTML(chatId,
-                                `<b>Настройки чата:</b>\nИсключение неактивных участников чата с предварительным уведомлением (неактивность более 30 дней, уведомление за день до исключения) - <b>${activ}</b>\nРепутация участников чата - <b>${reputation}</b>\nКарма участников чата - <b>${level}</b>\n
+                                `<b>Настройки чата:</b>\nИсключение неактивных участников чата с предварительным уведомлением (неактивность более <b>${chat.reminderDay}</b> дней, уведомление за день до исключения) - <b>${activ}</b>\nРепутация участников чата - <b>${reputation}</b>\nКарма участников чата - <b>${level}</b>
                                 `, msgId
                             )
                         })
@@ -476,10 +482,20 @@ bot.onText(/\/send/, msg => {
         checkAdmin(chatId, msg.from.id)
             .then(admin=>{
                 if (admin){
-                    bot.forwardMessage(adminChatBot, msg.chat.id, msg.reply_to_message.message_id)
-                        .then(s=>sendHTML(chatId, `Сообщение отправленно разработчикам. Благодарим Вас за обратную связь.`, msgId))
+
                 }
             })
+
+        if (msg.reply_to_message) {
+            sendHTML(adminChatBot, `msg_${chatId}&${msgId}\n<b>Обращение от @${msg.from.username}</b>`)
+            bot.forwardMessage(adminChatBot, msg.chat.id, msg.reply_to_message.message_id)
+            bot.forwardMessage(adminChatBot, msg.chat.id, msgId)
+                .then(s=>sendHTML(chatId, `Сообщение отправленно разработчикам. Благодарим Вас за обратную связь.`, msgId))
+        } else {
+            sendHTML(adminChatBot, `msg_${chatId}&${msgId}\n<b>Обращение от пользователя бота</b>`)
+            bot.forwardMessage(adminChatBot, msg.chat.id, msgId)
+                .then(s=>sendHTML(chatId, `Сообщение отправленно разработчикам. Благодарим Вас за обратную связь.`, msgId))
+        }
     }
 });
 
@@ -499,7 +515,7 @@ bot.onText(/\/start/, msg => {
 bot.onText(/\/help/, msg => {
     if (msg.text.startsWith('/help')){
         sendHTML(msg.chat.id, `
-            Для групповых чатов доступны следующие команды: \n<b>/я</b> - информация о себе \n<b>/кто (репост)</b> - информация о другом пользователе (авторе репоста) \n<b>/инфо</b> - список пользователей чата\n<b>/безтипа</b> - список пользователей чата без типа\n<b>/правила</b> - ссылка на правила чата\n<b>+/👍/-/👎 (репост)</b> - повысить/понизить репутацию автора репоста\n<b>/уровень</b> - узнать репутацию/уровень участников чата\n<b>/уровень (репост)</b> - узнать репутацию/уровень автора репоста\n<b>/помощь</b> - список команд бота\n\nдля администраторов чата:\n<b>/rules (в конце сообщения)</b> - установка правил чата\n<b>/welcome (текст приветствия)</b> - установка приветствия нового участника чата. Для обращения к участнику по имени, используйте $name в тексте приветствия\n<b>/settings</b> - список настроек чата\n<b>/reminder on-off</b> - включить-отключить автокик с предварительным уведомлением неактивных участников чата (неактивность в чате более 30 дней, уведомление за день до исключения из чата)\n<b>/reputation on-off</b> - включить-отключить репутацию участников чата\n<b>/level on-off</b> - включить-отключить карму участников чата\n<b>/clean</b> - обновить список участников чата\n<b>/mute (время в минутах, репост)</b> - наложить "молчу" на автора репоста указанное время\n<b>/kick (репост)</b> - выгнать из чата автора репоста\n<b>/ban (репост)</b> - забанить автора репоста\n<b>/send (сообщение+репост)</b> - отправить сообщение разработчикам
+            Для групповых чатов доступны следующие команды: \n<b>/я</b> - информация о себе \n<b>/кто (репост)</b> - информация о другом пользователе (авторе репоста) \n<b>/инфо</b> - список пользователей чата\n<b>/безтипа</b> - список пользователей чата без типа\n<b>/правила</b> - ссылка на правила чата\n<b>+/👍/-/👎 (репост)</b> - повысить/понизить репутацию автора репоста\n<b>/уровень</b> - узнать репутацию/уровень участников чата\n<b>/уровень (репост)</b> - узнать репутацию/уровень автора репоста\n<b>/помощь</b> - список команд бота\n\nдля администраторов чата:\n<b>/rules (в конце сообщения)</b> - установка правил чата\n<b>/welcome (текст приветствия)</b> - установка приветствия нового участника чата. Для обращения к участнику по имени, используйте $name в тексте приветствия\n<b>/settings</b> - список настроек чата\n<b>/reminder on/число-off</b> - включить-отключить автокик с предварительным уведомлением неактивных участников чата (укажите число дней неактивности в чате, по умолчанию установленно 30 дней, уведомление участника за день до исключения из чата)\n<b>/reputation on-off</b> - включить-отключить репутацию участников чата\n<b>/level on-off</b> - включить-отключить карму участников чата\n<b>/clean</b> - обновить список участников чата\n<b>/mute (время в минутах, репост)</b> - наложить "молчу" на автора репоста указанное время\n<b>/kick (репост)</b> - выгнать из чата автора репоста\n<b>/ban (репост)</b> - забанить автора репоста\n<b>/send (сообщение+репост)</b> - отправить сообщение разработчикам
             `, msg.message_id)
     }
 });
@@ -601,7 +617,7 @@ bot.onText(/\/уровень/, msg => {
 bot.onText(/\/помощь/, msg => {
     if (msg.chat.type === 'group' && msg.text.startsWith('/помощь')||msg.chat.type === 'supergroup' && msg.text.startsWith('/помощь')){
         sendHTML(msg.chat.id, `
-            Для групповых чатов доступны следующие команды: \n<b>/я</b> - информация о себе \n<b>/кто (репост)</b> - информация о другом пользователе (авторе репоста) \n<b>/инфо</b> - список пользователей чата\n<b>/безтипа</b> - список пользователей чата без типа\n<b>/правила</b> - ссылка на правила чата\n<b>+/👍/-/👎 (репост)</b> - повысить/понизить репутацию автора репоста\n<b>/уровень</b> - узнать репутацию/уровень участников чата\n<b>/уровень (репост)</b> - узнать репутацию/уровень автора репоста\n<b>/помощь</b> - список команд бота\n\nдля администраторов чата:\n<b>/rules (в конце сообщения)</b> - установка правил чата\n<b>/welcome (текст приветствия)</b> - установка приветствия нового участника чата. Для обращения к участнику по имени, используйте $name в тексте приветствия\n<b>/settings</b> - список настроек чата\n<b>/reminder on-off</b> - включить-отключить автокик с предварительным уведомлением неактивных участников чата (неактивность в чате более 30 дней, уведомление за день до исключения из чата)\n<b>/reputation on-off</b> - включить-отключить репутацию участников чата\n<b>/level on-off</b> - включить-отключить карму участников чата\n<b>/clean</b> - обновить список участников чата\n<b>/mute (время в минутах, репост)</b> - наложить "молчу" на автора репоста указанное время\n<b>/kick (репост)</b> - выгнать из чата автора репоста\n<b>/ban (репост)</b> - забанить автора репоста\n<b>/send (сообщение+репост)</b> - отправить сообщение разработчикам
+            Для групповых чатов доступны следующие команды: \n<b>/я</b> - информация о себе \n<b>/кто (репост)</b> - информация о другом пользователе (авторе репоста) \n<b>/инфо</b> - список пользователей чата\n<b>/безтипа</b> - список пользователей чата без типа\n<b>/правила</b> - ссылка на правила чата\n<b>+/👍/-/👎 (репост)</b> - повысить/понизить репутацию автора репоста\n<b>/уровень</b> - узнать репутацию/уровень участников чата\n<b>/уровень (репост)</b> - узнать репутацию/уровень автора репоста\n<b>/помощь</b> - список команд бота\n\nдля администраторов чата:\n<b>/rules (в конце сообщения)</b> - установка правил чата\n<b>/welcome (текст приветствия)</b> - установка приветствия нового участника чата. Для обращения к участнику по имени, используйте $name в тексте приветствия\n<b>/settings</b> - список настроек чата\n<b>/reminder on/число-off</b> - включить-отключить автокик с предварительным уведомлением неактивных участников чата (укажите число дней неактивности в чате, по умолчанию установленно 30 дней, уведомление участника за день до исключения из чата)\n<b>/reputation on-off</b> - включить-отключить репутацию участников чата\n<b>/level on-off</b> - включить-отключить карму участников чата\n<b>/clean</b> - обновить список участников чата\n<b>/mute (время в минутах, репост)</b> - наложить "молчу" на автора репоста указанное время\n<b>/kick (репост)</b> - выгнать из чата автора репоста\n<b>/ban (репост)</b> - забанить автора репоста\n<b>/send (сообщение+репост)</b> - отправить сообщение разработчикам
             `, msg.message_id)
     }
 });
@@ -922,7 +938,7 @@ async function checkChat (chatId, chatTitle, chatNikName, userId) {
             chat.chatNikName = chatNikName
         }
         if (count>49&&count!==chat.count){
-            cleanMembers(chat._id)
+            await cleanMembers(chat._id)
             chat.count = count
         }
         await chat.save()
@@ -950,17 +966,30 @@ async function checkChat (chatId, chatTitle, chatNikName, userId) {
         await admin.map((u)=>{checkUser(chatId, u.user.id, u.user.first_name, u.user.username)})
     }
 }
-async function checkUser (userId, name, nikName) {
+async function checkUser (userId, name, nikName, date) {
     let user = await User.findOne({userId})
     if (!user) {
         user = new User({
             userId,
             name,
-            nikName,
+            nikName
         })
     } else if (user.name !== name || user.nikName !== nikName) {
         user.name = name;
         user.nikName = nikName
+    }
+    await user.save()
+}
+async function checkDate(chatId, userId, date) {
+    let user = await DataUsr.findOne({chatId, userId})
+    if (user) {
+        user.date = date
+    } else {
+        user = new DataUsr({
+            userId,
+            chatId,
+            date
+        })
     }
     await user.save()
 }
@@ -1031,13 +1060,11 @@ async function repUser(chatId, userId, user, name, toggle, msgId) {
         sendHTML(chatId, `Слишком часто влиять на репутацию запрещено, попробуйте чуть попозже.`, msgId)
     }
 }
-async function levelUser(chatId, userId, carma, date) {
+async function levelUser(chatId, userId, carma) {
     const usr = await User.findOne({userId});
     let usrData = await DataUsr.findOne({chatId, userId});
     const lvl = [0, 100, 235, 505, 810, 1250, 1725, 2335, 2980, 3760, 4575, 5525, 6510, 7630, 8785, 10075, 11400, 12860, 14355, 15985, 17650, 19450, 21285, 23255, 25260, 27400, 29575, 31885, 34230,36710, 39225, 41875, 44560, 47380, 50235, 53225, 56250, 59410, 62605, 65935]
     if (usrData) {
-        usrData.date = date
-        usrData.reminder = false
         usrData.carma = usrData.carma + carma;
         if (lvl[usrData.level+1]<usrData.carma){
             ++usrData.level;
@@ -1047,8 +1074,7 @@ async function levelUser(chatId, userId, carma, date) {
         usrData = new DataUsr({
             userId,
             chatId,
-            carma,
-            date
+            carma
         })
     }
     await usrData.save()
@@ -1121,13 +1147,16 @@ async function levelData(chatId, userId, msgId, post) {
 
     }
 }
-async function toggleSwitch(byId, data, toggle, msgId) {
+async function toggleSwitch(byId, data, toggle, day, msgId) {
     let chat = await Chat.findById(byId)
     const chatId = chat.chatId
     if (toggle){
         if (data === 'reminder'){
             chat.notActivUser = true
             chat.cleanData = false
+            if (day){
+                chat.reminderDay = day
+            }
             sendHTML(chatId, `Удаление неактивных участников чата <b>включено</b>`, msgId)
         } else if (data === 'reputation'){
             chat.reputation = true
@@ -1151,14 +1180,57 @@ async function toggleSwitch(byId, data, toggle, msgId) {
         }
     }
 
-    await chat.save().then(()=>console.log(`Toggle successfuly`, chat))
+    await chat.save()
 }
 async function cleanData(chatId) {
     const chat = await DataUsr.find({chatId})
     chat.map(i=>{
         DataUsr.findByIdAndDelete(i._id)
-            .then(del=>Chat.findOneAndUpdate({chatId}, {cleanData: true}))
     })
+    Chat.findOneAndUpdate({chatId}, {cleanData: true})
+}
+async function notActivUser() {
+    const chats = await Chat.find({notActivUser: true})
+    for (const chat of chats){
+        let data = await DataUsr.find({chatId: chat.chatId, userId: {$in: chat.userId}})
+        const chatId = chat.chatId
+        const day = chat.reminderDay
+        let reminder = []
+        let member = []
+        for (let i of data) {
+            const userId = i.userId
+            if (Math.trunc(Date.now()/1000)-i.date > 60*60*24*(day-1) && i.reminder === false){
+                let user = await User.findOne({userId})
+                const mem = await bot.getChatMember(chatId, userId)
+                const status = mem.status
+                reminder.push(`<a href="tg://user?id=${userId}">${user.name}</a>`)
+                if ( status === 'member' || status === 'restricted'){
+                    i.reminder = true
+                }
+                await i.save()
+            } else if (Math.trunc(Date.now()/1000)-i.date > 60*60*24*day && i.reminder === true){
+                const user = await User.findOne({userId})
+                const mem = await bot.getChatMember(chatId, userId)
+                const status = mem.status
+                if ( status === 'member' || status === 'restricted'){
+                    member.push(`<a href="tg://user?id=${userId}">${user.name}</a>`)
+                    await bot.kickChatMember(chatId, userId)
+                    await bot.unbanChatMember(chatId, userId)
+                }
+            }
+        }
+        let html = []
+        if (reminder.length>0) {
+            html.push(`<b>Уважаемые:</b>\n<b>${reminder.join('\n')}</b>\n\nЗавтра Вы будете исключены из чата, так как не проявляли свою активность последние <b>${day-1}</b> дней. \nПрисоединяйтесь к нашему общению, нам Вас не хватает =)`)
+        }
+        if (member.length>0){
+            html.push(`\n<b>Исключены за неактивность в чате:</b>\n${member.join('\n')}`)
+        }
+
+        if (html.length>0){
+            sendHTML(adminChatBot, `${html.join('\n')}`)
+        }
+    }
 }
 
 //-------------------------------------Functions for Admins Bots
@@ -1245,37 +1317,22 @@ async function adminDeleteUserDB(byId, chatId, msgId) {
         sendHTML(chatId, `Документ с данным ID в базе не найден`, msgId)
     }
 }
-
-//-------------------------------------Test Function---------------------------------------------
-async function notActivUser(){
-    console.log(`Check not activ users start...`)
-    const chats = await Chat.find({notActivUser: true})
-    chats.map(chat=>{
-        const chatId = chat.chatId
-        const userIds = chat.userId
-        userIds.map(i=>{
-            DataUsr.findOne({chatId, userId: i })
-                .then(u=>{
-                    console.log(u.userId, u.reminder)
-                    let check = Math.trunc(Date.now()/1000)-u.date
-                    if (check > 60*60*24*29 && u.reminder === false){
-                        reminderUser(chatId, i)
-                        u.reminder = true
-                        console.log(`User data: ${u}`)
-                        // u.save()
-                    } else if (check > 60*60*24*30 && u.reminder === true){
-                        console.log(`User delete: ${u.userId}`)
-                        // bot.kickChatMember(chatId, i)
-                    }
-                })
-                .catch(not=>reminderUser(chatId, i))
-        })
+async function adminMessageChats(text) {
+    const chats = await Chat.find()
+    chats.map(chat => {
+        bot.getChat(chat.chatId)
+            .then(c=>{
+                sendHTML(c.id, text)
+            })
+            .catch(e=>{
+                const error = e.response.request.response.body.description
+                let text
+                if (error === 'Bad Request: chat not found'){
+                    text = `Бот исключен из чата`
+                    // console.log(text)
+                }
+            })
     })
 }
-async function reminderUser(chatId, userId) {
-    let user = await User.findOne({userId})
-    console.log(`Reminder user chat: ${user.name}`)
-    /*sendHTML(chatId,
-        `Уважаемый <a href="tg://user?id=${userId}">${user.name}</a>, завтра Вы будете исключены из чата, так как не проявляли свою активность последнии 29 дней.`
-    )*/
-}
+
+//-------------------------------------Test Function---------------------------------------------

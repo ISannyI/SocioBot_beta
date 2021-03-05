@@ -42,6 +42,10 @@ const ChatShema = new Shema({
         type: Boolean,
         default: false
     },
+    reminderDay: {
+        type: Number,
+        default: 30
+    },
     reputation: {
         type: Boolean,
         default: false
