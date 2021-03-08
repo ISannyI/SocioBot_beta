@@ -48,9 +48,10 @@ bot.on('message', msg => {
         const chatTitle = msg.chat.title;
         const chatNikName = msg.chat.username;
         const msgId = msg.message_id
+        const date = msg.date
         //----------------------------check chat&users----------------------
         checkChat(chatId, chatTitle, chatNikName, userId);
-        checkUser(userId, name, nikName, msg.date);
+        checkUser(userId, name, nikName, date);
 
 //--------------------------message text----------------------------------
         if (msg.text) {
@@ -74,7 +75,7 @@ bot.on('message', msg => {
             Chat.findOne({chatId})
                 .then(chat=>{
                     if (chat.notActivUser){
-                        checkDate(chatId, userId, msg.date)
+                        checkDate(chatId, userId, date)
                     }
 //--------------------------Reputation User Group-------------------------
                     if (chat.reputation&&msg.reply_to_message){
@@ -152,7 +153,7 @@ bot.on('left_chat_member', msg => {
 
 //--------------------------------Commands Test------------------------------------------------
 
-bot.onText(/\/test/, msg => {
+bot.onText(/\/test/, async msg => {
     if (msg.from.id === adminBota && msg.text.startsWith('/test')) {
 
     }
@@ -984,7 +985,10 @@ async function checkDate(chatId, userId, date) {
     let user = await DataUsr.findOne({chatId, userId})
     if (user) {
         user.date = date
-    } else {
+        if (user.reminder){
+            user.reminder = false
+        }
+    } else if (date){
         user = new DataUsr({
             userId,
             chatId,
@@ -1192,32 +1196,47 @@ async function cleanData(chatId) {
 async function notActivUser() {
     const chats = await Chat.find({notActivUser: true})
     for (const chat of chats){
-        let data = await DataUsr.find({chatId: chat.chatId, userId: {$in: chat.userId}})
+        let users = await User.find({userId: {$in: chat.userId}})
         const chatId = chat.chatId
         const day = chat.reminderDay
         let reminder = []
         let member = []
-        for (let i of data) {
-            const userId = i.userId
-            if (Math.trunc(Date.now()/1000)-i.date > 60*60*24*(day-1) && i.reminder === false){
-                let user = await User.findOne({userId})
-                const mem = await bot.getChatMember(chatId, userId)
-                const status = mem.status
+        for (let user of users) {
+            const userId = user.userId
+            let data = await DataUsr.findOne({chatId, userId})
+            if (data){
+                if (Math.trunc(Date.now()/1000)-data.date > 60*60*24*(day-1) && data.reminder === false){
+                    const mem = await bot.getChatMember(chatId, userId)
+                    const status = mem.status
+                    if (!mem.user.is_bot) {
+                        reminder.push(`<a href="tg://user?id=${userId}">${user.name}</a>`)
+                        if ( status === 'member' || status === 'restricted'){
+                            data.reminder = true
+                        }
+                    }
+                } else if (Math.trunc(Date.now()/1000)-data.date > 60*60*24*day && data.reminder === true){
+                    const mem = await bot.getChatMember(chatId, userId)
+                    const status = mem.status
+                    if (!mem.user.is_bot){
+                        if ( status === 'creator' || status === 'administrator'){
+                            reminder.push(`<a href="tg://user?id=${userId}">${user.name}</a>`)
+                        } else if ( status === 'member' || status === 'restricted'){
+                            member.push(`<a href="tg://user?id=${userId}">${user.name}</a>`)
+                            await bot.kickChatMember(chatId, userId)
+                            await bot.unbanChatMember(chatId, userId)
+                        }
+                    }
+
+                }
+            } else {
                 reminder.push(`<a href="tg://user?id=${userId}">${user.name}</a>`)
-                if ( status === 'member' || status === 'restricted'){
-                    i.reminder = true
-                }
-                await i.save()
-            } else if (Math.trunc(Date.now()/1000)-i.date > 60*60*24*day && i.reminder === true){
-                const user = await User.findOne({userId})
-                const mem = await bot.getChatMember(chatId, userId)
-                const status = mem.status
-                if ( status === 'member' || status === 'restricted'){
-                    member.push(`<a href="tg://user?id=${userId}">${user.name}</a>`)
-                    await bot.kickChatMember(chatId, userId)
-                    await bot.unbanChatMember(chatId, userId)
-                }
+                data = new DataUsr({
+                    userId,
+                    chatId,
+                    reminder: true
+                })
             }
+            await data.save()
         }
         let html = []
         if (reminder.length>0) {
@@ -1228,12 +1247,12 @@ async function notActivUser() {
         }
 
         if (html.length>0){
-            sendHTML(adminChatBot, `${html.join('\n')}`)
+            sendHTML(chatId, `${html.join('\n')}`)
         }
     }
 }
 
-//-------------------------------------Functions for Admins Bots
+//------------------------------Functions for Admins Bots--------------------------------------
 async function adminChatList(byId, chatId, chat, title, userIds, msgId) {
     const users = await checkMember(chat, userIds)
     const html = users.map((user, i) => {
